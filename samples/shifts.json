@@ -1,0 +1,24 @@
+{
+  "morning": {
+    "request_id": "morning",
+    "parent_release": "R0",
+    "replacements": [
+      {"district": "west", "rows": [{"line_number": 1, "observation_id": "w", "reading": -2}]},
+      {"district": "east", "rows": [
+        {"line_number": 2, "observation_id": "zero", "reading": 0},
+        {"line_number": 1, "observation_id": "r", "reading": 5}
+      ]}
+    ]
+  },
+  "move": {
+    "request_id": "move",
+    "parent_release": "R:morning",
+    "replacements": [
+      {"district": "east", "rows": [{"line_number": 2, "observation_id": "zero", "reading": 0}]},
+      {"district": "west", "rows": [
+        {"line_number": 2, "observation_id": "r", "reading": 7},
+        {"line_number": 1, "observation_id": "w", "reading": -2}
+      ]}
+    ]
+  }
+}
