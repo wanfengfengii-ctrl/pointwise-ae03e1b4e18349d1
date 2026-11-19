@@ -26,10 +26,12 @@ _SCHEMA = (
            content_id TEXT NOT NULL REFERENCES contents(content_id) ON DELETE CASCADE
        )''',
     '''CREATE TABLE IF NOT EXISTS observations (
-           slot INTEGER PRIMARY KEY CHECK (slot >= 0),
+           content_id TEXT NOT NULL REFERENCES contents(content_id) ON DELETE CASCADE,
+           slot INTEGER NOT NULL CHECK (slot >= 0),
            line_number TEXT NOT NULL,
            observation_id TEXT NOT NULL,
-           reading TEXT NOT NULL
+           reading TEXT NOT NULL,
+           PRIMARY KEY (content_id, slot)
        )''',
 )
 

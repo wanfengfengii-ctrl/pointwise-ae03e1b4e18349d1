@@ -1,8 +1,13 @@
-"""Persist the district working register and its preparation metadata."""
+"""Persist every district content version and its preparation metadata.
+
+Rows are materialized per ``content_id`` so that a newer replacement never
+overwrites the rows of an already signed release. The catalog only keeps the
+content identifiers; the district store remains the single source of truth.
+"""
 
 import sqlite3
 
-from intake.request import ObservationRow
+from intake.request import ObservationRow, row_order_key
 
 from .content import ContentRef, StoredContent
 from .database import PartitionDatabase, PartitionError
@@ -12,15 +17,15 @@ def fetch_content(
     connection: sqlite3.Connection, database: PartitionDatabase, content_id: str
 ) -> StoredContent | None:
     metadata = connection.execute(
-        '''SELECT request_id, row_count FROM active_register JOIN contents USING (content_id)
-           WHERE singleton = 1 AND content_id = ?''',
+        'SELECT request_id, row_count FROM contents WHERE content_id = ?',
         (content_id,),
     ).fetchone()
     if metadata is None:
         return None
     records = connection.execute(
         '''SELECT slot, line_number, observation_id, reading
-           FROM observations ORDER BY slot'''
+           FROM observations WHERE content_id = ? ORDER BY slot''',
+        (content_id,),
     ).fetchall()
     if len(records) != metadata['row_count'] or any(
         record['slot'] != slot for slot, record in enumerate(records)
@@ -54,11 +59,12 @@ def fetch_loaded(connection: sqlite3.Connection, database: PartitionDatabase) ->
 
 def store_content(connection: sqlite3.Connection, content: StoredContent) -> None:
     content_id = content.reference.content_id
+    ordered_rows = tuple(sorted(content.rows, key=row_order_key))
     recorded = connection.execute(
         '''INSERT INTO contents (content_id, request_id, row_count) VALUES (?, ?, ?)
            ON CONFLICT(content_id) DO UPDATE SET row_count = excluded.row_count
            WHERE contents.request_id IS excluded.request_id''',
-        (content_id, content.request_id, len(content.rows)),
+        (content_id, content.request_id, len(ordered_rows)),
     )
     if recorded.rowcount != 1:
         raise PartitionError(f'content {content_id!r} belongs to another request')
@@ -67,13 +73,15 @@ def store_content(connection: sqlite3.Connection, content: StoredContent) -> Non
            ON CONFLICT(singleton) DO UPDATE SET content_id = excluded.content_id''',
         (content_id,),
     )
-    connection.execute('DELETE FROM observations')
+    # Re-staging the same id must only replace its own rows; other content
+    # versions (including the parent release) stay untouched and readable.
+    connection.execute('DELETE FROM observations WHERE content_id = ?', (content_id,))
     connection.executemany(
-        '''INSERT INTO observations (slot, line_number, observation_id, reading)
-           VALUES (?, ?, ?, ?)''',
+        '''INSERT INTO observations (content_id, slot, line_number, observation_id, reading)
+           VALUES (?, ?, ?, ?, ?)''',
         (
-            (slot, format(row.line_number, 'x'), row.observation_id, format(row.reading, 'x'))
-            for slot, row in enumerate(content.rows)
+            (content_id, slot, format(row.line_number, 'x'), row.observation_id, format(row.reading, 'x'))
+            for slot, row in enumerate(ordered_rows)
         ),
     )
 
